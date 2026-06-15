@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>收入记录器 - 楠楠团队</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f9f9f9;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        select, input, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        select {
+            min-width: 180px;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .delete-btn {
+            background: #e74c3c;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #34495e;
+            color: white;
+        }
+        .totals {
+            margin-top: 20px;
+            padding: 15px;
+            background: #ecf0f1;
+            border-radius: 8px;
+            font-size: 18px;
+        }
+        .person-total {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💰 收入记录器</h1>
+        <p style="text-align:center; color:#7f8c8d;">楠楠、星辰、哈哈、小美、牛爷爷、涵涵、拉朵、朵拉、伊怡、雪悦</p>
+
+        <!-- 记录表单 -->
+        <div style="margin-bottom: 30px; padding: 20px; background:#f8f9fa; border-radius:8px;">
+            <h3>📝 新收入记录</h3>
+            <select id="nameSelect">
+                <option value="">选择人物</option>
+                <option value="楠楠">楠楠</option>
+                <option value="星辰">星辰</option>
+                <option value="哈哈">哈哈</option>
+                <option value="小美">小美</option>
+                <option value="牛爷爷">牛爷爷</option>
+                <option value="涵涵">涵涵</option>
+                <option value="拉朵">拉朵</option>
+                <option value="朵拉">朵拉</option>
+                <option value="伊怡">伊怡</option>
+                <option value="雪悦">雪悦</option>
+            </select>
+            
+            <select id="unitSelect" style="width:120px;">
+                <option value="CNY">CNY (元)</option>
+                <option value="KK">KK</option>
+            </select>
+            
+            <input type="number" id="amount" placeholder="收入金额" style="width:160px;">
+            <input type="text" id="remark" placeholder="备注 (可选)" style="width:220px;">
+            <button onclick="addRecord()">记录收入</button>
+        </div>
+
+        <!-- 统计 -->
+        <div class="totals" id="totals"></div>
+
+        <!-- 记录表格 -->
+        <h3>📋 所有记录</h3>
+        <button onclick="exportCSV()" style="margin-bottom:10px;">导出 CSV</button>
+        <button onclick="clearAllData()" style="margin-bottom:10px; background:#e74c3c;">清空所有数据</button>
+        
+        <table id="recordTable">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>姓名</th>
+                    <th>记录金额</th>
+                    <th>备注</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const NAMES = ["楠楠", "星辰", "哈哈", "小美", "牛爷爷", "涵涵", "拉朵", "朵拉", "伊怡", "雪悦"];
+        
+        function loadRecords() {
+            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            records.forEach((record, index) => {
+                const displayAmount = record.originalAmount !== undefined 
+                    ? `${record.originalAmount.toLocaleString()} ${record.unit}` 
+                    : `${parseFloat(record.amount).toLocaleString()} CNY`;
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${record.date}</td>
+                    <td>${record.name}</td>
+                    <td style="text-align:right; font-weight:bold;">${displayAmount}</td>
+                    <td>${record.remark || ''}</td>
+                    <td><button class="delete-btn" onclick="deleteRecord(${index})">删除</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            updateTotals(records);
+        }
+        
+        function addRecord() {
+            const nameSelect = document.getElementById('nameSelect');
+            const unitSelect = document.getElementById('unitSelect');
+            const amountInput = document.getElementById('amount');
+            const remarkInput = document.getElementById('remark');
+            
+            const name = nameSelect.value;
+            const unit = unitSelect.value;
+            let amount = parseFloat(amountInput.value);
+            
+            if (!name) {
+                alert('请选择人物！');
+                return;
+            }
+            if (!amount || amount <= 0) {
+                alert('请输入有效金额！');
+                return;
+            }
+            
+            // 如果是KK，转换为CNY
+            if (unit === 'KK') {
+                amount = amount / 13500;
+            }
+            
+            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
+            records.unshift({
+                date: new Date().toLocaleString('zh-CN'),
+                name: name,
+                amount: amount,        // 内部统一存CNY
+                originalAmount: parseFloat(amountInput.value),
+                unit: unit,
+                remark: remarkInput.value.trim()
+            });
+            
+            localStorage.setItem('incomeRecords', JSON.stringify(records));
+            
+            // 清空输入
+            amountInput.value = '';
+            remarkInput.value = '';
+            nameSelect.value = '';
+            
+            loadRecords();
+        }
+        
+        function deleteRecord(index) {
+            if (!confirm('确定删除这条记录吗？')) return;
+            
+            let records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
+            records.splice(index, 1);
+            localStorage.setItem('incomeRecords', JSON.stringify(records));
+            loadRecords();
+        }
+        
+        function updateTotals(records) {
+            const totalsDiv = document.getElementById('totals');
+            let html = '<h3>📊 收入统计</h3>';
+            
+            // 每个人总收入
+            const personTotals = {};
+            NAMES.forEach(name => personTotals[name] = 0);
+            
+            let grandTotal = 0;
+            
+            records.forEach(r => {
+                if (personTotals[r.name] !== undefined) {
+                    personTotals[r.name] += parseFloat(r.amount);
+                    grandTotal += parseFloat(r.amount);
+                }
+            });
+            
+            html += `<div class="person-total"><strong>总收入</strong><span style="font-size:22px; color:#27ae60;">¥ ${grandTotal.toLocaleString()}</span></div>`;
+            
+            NAMES.forEach(name => {
+                const total = personTotals[name];
+                if (total > 0) {
+                    html += `<div class="person-total"><span>${name}</span><span>¥ ${total.toLocaleString()}</span></div>`;
+                }
+            });
+            
+            totalsDiv.innerHTML = html;
+        }
+        
+        function exportCSV() {
+            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
+            if (records.length === 0) {
+                alert('没有记录可导出！');
+                return;
+            }
+            
+            let csv = "日期,姓名,金额,备注\n";
+            records.forEach(r => {
+                csv += `"${r.date}","${r.name}",${r.amount},"${r.remark || ''}"\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `收入记录_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        }
+        
+        function clearAllData() {
+            if (!confirm('⚠️ 确定要清空所有收入记录吗？此操作不可恢复！')) return;
+            localStorage.removeItem('incomeRecords');
+            loadRecords();
+        }
+        
+        // 初始化
+        window.onload = loadRecords;
+    </script>
+</body>
+</html>
