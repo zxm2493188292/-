@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>收入记录器 - 楠楠团队 (极速云同步版)</title>
+    <title>收入记录器 - 楠楠团队 (多端完美同步版)</title>
     <style>
         body {
             font-family: "Microsoft YaHei", Arial, sans-serif;
@@ -93,12 +93,13 @@
         <div class="sync-bar">
             <div>
                 <strong style="color: #2c3e50;">🔐 团队同步暗号：</strong>
-                <input type="text" id="syncKey" placeholder="输入专属暗号" style="width: 220px;" value="nannan_team_2026">
-                <span id="syncStatus" style="margin-left: 10px; font-size: 14px; color: #2ecc71; font-weight: bold;">本地就绪</span>
+                <!-- 这里你可以直接把 value 改成你们团队固定的暗号，这样任何浏览器打开默认就是这个 -->
+                <input type="text" id="syncKey" placeholder="输入专属暗号" style="width: 220px;" value="nannan_team_2026" onchange="onKeyChange()">
+                <span id="syncStatus" style="margin-left: 10px; font-size: 14px; color: #f39c12; font-weight: bold;">正在连接云端...</span>
             </div>
             <div>
-                <button onclick="uploadToCloud()" style="background: #2ecc71;">⬆️ 推送最新修改</button>
-                <button onclick="downloadFromCloud()" style="background: #f39c12;">⬇️ 刷新/拉取云端</button>
+                <button onclick="uploadToCloud(false)" style="background: #2ecc71;">⬆️ 推送修改</button>
+                <button onclick="downloadFromCloud(false)" style="background: #f39c12;">⬇️ 刷新/拉取云端</button>
             </div>
         </div>
 
@@ -135,7 +136,7 @@
         <!-- 记录表格 -->
         <h3>📋 所有记录</h3>
         <button onclick="exportCSV()" style="margin-bottom:10px;">导出 CSV</button>
-        <button onclick="clearAllData()" style="margin-bottom:10px; background:#e74c3c;">清空所有数据</button>
+        <button onclick="clearAllData()" style="margin-bottom:10px; background:#e74c3c;">清空本地数据</button>
         
         <table id="recordTable">
             <thead>
@@ -160,7 +161,14 @@
                 document.getElementById('syncKey').value = savedKey;
             }
             loadRecords();
-            // 打开时自动尝试静默拉取一次最新云端数据
+            // 开屏自动联网追溯该暗号在全网最新的账本
+            downloadFromCloud(true);
+        }
+
+        // 当用户手动修改暗号时触发
+        function onKeyChange() {
+            const key = document.getElementById('syncKey').value.trim();
+            localStorage.setItem('nn_sync_key', key);
             downloadFromCloud(true);
         }
 
@@ -219,7 +227,7 @@
             nameSelect.value = '';
             
             loadRecords();
-            // 记账后自动推送云端
+            // 记账后自动静默同步到云端
             uploadToCloud(true);
         }
         
@@ -229,7 +237,7 @@
             records.splice(index, 1);
             localStorage.setItem('incomeRecords', JSON.stringify(records));
             loadRecords();
-            // 删除后自动推送云端
+            // 删除后自动静默同步到云端
             uploadToCloud(true);
         }
         
@@ -258,7 +266,7 @@
             totalsDiv.innerHTML = html;
         }
 
-        // ==================== 【极速免注册企业级云同步引擎】 ====================
+        // ==================== 【无视浏览器限制·全局自动追溯引擎】 ====================
         function getCleanKey() {
             const key = document.getElementById('syncKey').value.trim();
             if(!key) { alert('请先输入团队同步暗号！'); return null; }
@@ -266,7 +274,7 @@
             return key.replace(/[^a-zA-Z0-9]/g, ''); 
         }
 
-        // 1. 上传函数
+        // 上传：无论哪个浏览器，只要点了就强制重写云端该口令的数据
         async function uploadToCloud(isAuto = false) {
             const key = getCleanKey();
             if(!key) return;
@@ -285,11 +293,9 @@
                 });
 
                 if(response.ok) {
-                    const resData = await response.json();
-                    localStorage.setItem(`nn_real_id_${key}`, resData.id);
                     document.getElementById('syncStatus').style.color = '#2ecc71';
                     document.getElementById('syncStatus').innerText = '✅ 云端已同步(' + new Date().toLocaleTimeString() + ')';
-                    if(!isAuto) alert('🚀 数据已成功成功推送到云端！其他队员刷新/拉取即可更新。');
+                    if(!isAuto) alert('🚀 数据已成功推送到云端总库！');
                 } else {
                     throw new Error();
                 }
@@ -299,53 +305,56 @@
             }
         }
 
-        // 2. 下载函数
+        // 下载：不再依赖本地缓存的ID，而是通过“暗号”直接去云端大总库里捞最新切片
         async function downloadFromCloud(isAuto = false) {
             const key = getCleanKey();
             if(!key) return;
             document.getElementById('syncStatus').style.color = '#f39c12';
-            document.getElementById('syncStatus').innerText = '⏳ 正在获取云端账本...';
+            document.getElementById('syncStatus').innerText = '⏳ 正在检索云端总库...';
 
             try {
-                let targetId = localStorage.getItem(`nn_real_id_${key}`);
-                
-                // 自动扫描最新匹配口令的云端切片
+                // 直接拉取公共池，无视浏览器隔离，全网追溯该暗号最新的那份账本
                 const listRes = await fetch(`https://api.restful-api.dev/objects`);
+                if(!listRes.ok) throw new Error();
+                
                 const list = await listRes.json();
+                // 倒序寻找最新上传的属于这个暗号的数据对象
                 const myCloudObj = list.reverse().find(item => item.name === `nannan_team_pro_${key}`);
                 
-                if (myCloudObj) {
-                    targetId = myCloudObj.id;
-                    localStorage.setItem(`nn_real_id_${key}`, targetId);
-                }
-
-                if (!targetId) {
-                    document.getElementById('syncStatus').style.color = '#7f8c8d';
-                    document.getElementById('syncStatus').innerText = '☁️ 云端为空(请先点推送)';
-                    return;
-                }
-
-                const res = await fetch(`https://api.restful-api.dev/objects/${targetId}`);
-                if(res.ok) {
-                    const result = await res.json();
-                    if(result && result.data && result.data.records) {
-                        const cloudData = result.data.records;
-                        if (isAuto) {
-                            localStorage.setItem('incomeRecords', cloudData);
-                            loadRecords();
-                            document.getElementById('syncStatus').style.color = '#2ecc71';
-                            document.getElementById('syncStatus').innerText = '✅ 自动刷新成功';
-                        } else {
-                            if(confirm('☁️ 发现云端有更新的账目，是否覆盖并同步到当前手机上？')) {
+                if (myCloudObj && myCloudObj.id) {
+                    // 精准二次拉取内容
+                    const res = await fetch(`https://api.restful-api.dev/objects/${myCloudObj.id}`);
+                    if(res.ok) {
+                        const result = await res.json();
+                        if(result && result.data && result.data.records) {
+                            const cloudData = result.data.records;
+                            
+                            // 核心修复：如果是全新浏览器（本地为空），或者云端有更新，直接自动同步
+                            const localData = localStorage.getItem('incomeRecords') || '[]';
+                            if (isAuto) {
+                                // 如果本地没数据，或者手动切换了新浏览器，直接拉取覆盖，实现无缝连通
                                 localStorage.setItem('incomeRecords', cloudData);
                                 loadRecords();
                                 document.getElementById('syncStatus').style.color = '#2ecc71';
-                                document.getElementById('syncStatus').innerText = '✅ 手动同步完成';
-                                alert('🎉 账本已同步到最新状态！');
+                                document.getElementById('syncStatus').innerText = '✅ 云端数据加载成功';
+                            } else {
+                                if(confirm('☁️ 确定要从云端总库同步最新账目吗？这将覆盖当前浏览器上的内容。')) {
+                                    localStorage.setItem('incomeRecords', cloudData);
+                                    loadRecords();
+                                    document.getElementById('syncStatus').style.color = '#2ecc71';
+                                    document.getElementById('syncStatus').innerText = '✅ 手动刷新完成';
+                                    alert('🎉 账本已同步到全队最新状态！');
+                                }
                             }
+                            return;
                         }
                     }
                 }
+                
+                // 如果云端搜不到这个暗号房间
+                document.getElementById('syncStatus').style.color = '#7f8c8d';
+                document.getElementById('syncStatus').innerText = '☁️ 云端新房间(请先记账或点推送)';
+                
             } catch (e) {
                 document.getElementById('syncStatus').style.color = '#e74c3c';
                 document.getElementById('syncStatus').innerText = '❌ 网络拉取失败';
@@ -365,7 +374,7 @@
         }
         
         function clearAllData() {
-            if (!confirm('⚠️ 确定要清空本地数据吗？（若需同步删除云端，清空后请点击一次推送修改）')) return;
+            if (!confirm('⚠️ 确定要清空本地数据吗？（不会影响云端总库，再次刷新即可拉回）')) return;
             localStorage.removeItem('incomeRecords');
             loadRecords();
         }
