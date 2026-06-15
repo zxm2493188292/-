@@ -3,85 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>收入记录器 - 楠楠团队 (永不丢失云同步版)</title>
+    <title>收入记录器 - 楠楠团队 (国外云端极速版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
-            font-family: "Microsoft YaHei", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 900px;
             margin: 20px auto;
             padding: 20px;
             background: #f4f6f9;
             color: #333;
         }
-        h1 {
-            text-align: center;
-            color: #2c3e50;
-            margin-bottom: 5px;
-        }
-        .container {
-            background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        }
-        select, input, button {
-            padding: 10px;
-            margin: 5px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 16px;
-            outline: none;
-        }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 5px; }
+        .container { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+        select, input, button { padding: 10px; margin: 5px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; outline: none; }
         select { min-width: 150px; }
-        button {
-            background: #3498db;
-            color: white;
-            border: none;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
+        button { background: #3498db; color: white; border: none; cursor: pointer; transition: background 0.2s; }
         button:hover { background: #2980b9; }
-        .delete-btn {
-            background: #e74c3c;
-            padding: 6px 12px;
-            font-size: 14px;
-        }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .delete-btn { background: #e74c3c; padding: 6px 12px; font-size: 14px; }
         .delete-btn:hover { background: #c0392b; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #34495e; color: white; }
-        .totals {
-            margin-top: 20px;
-            padding: 15px;
-            background: #eef2f5;
-            border-radius: 8px;
-            font-size: 18px;
-        }
-        .person-total {
-            display: flex;
-            justify-content: space-between;
-            margin: 8px 0;
-        }
-        /* 云同步顶栏 */
+        .totals { margin-top: 20px; padding: 15px; background: #eef2f5; border-radius: 8px; font-size: 18px; }
+        .person-total { display: flex; justify-content: space-between; margin: 8px 0; }
         .sync-bar {
-            background: #e8f4fd;
-            padding: 15px;
+            background: #eef9ff;
+            color: #0066cc;
+            padding: 12px;
             border-radius: 8px;
             margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            flex-wrap: wrap;
-            border-left: 5px solid #3498db;
+            border: 1px solid #bce0ff;
         }
+        .error-bar { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
     </style>
 </head>
 <body>
@@ -89,16 +47,9 @@
         <h1>💰 收入记录器</h1>
         <p style="text-align:center; color:#7f8c8d; margin-top: 0;">楠楠、星辰、哈哈、小美、牛爷爷、涵涵、拉朵、朵拉、伊怡、雪悦</p>
 
-        <div class="sync-bar">
-            <div>
-                <strong style="color: #2c3e50;">🔐 团队同步暗号：</strong>
-                <input type="text" id="syncKey" placeholder="输入专属暗号" style="width: 220px;" value="nannan_team_2026" onchange="onKeyChange()">
-                <span id="syncStatus" style="margin-left: 10px; font-size: 14px; color: #f39c12; font-weight: bold;">正在连接云端...</span>
-            </div>
-            <div>
-                <button onclick="uploadToCloud(false)" style="background: #2ecc71;">⬆️ 推送最新修改</button>
-                <button onclick="downloadFromCloud(false)" style="background: #f39c12;">⬇️ 刷新/拉取云端</button>
-            </div>
+        <div id="statusBar" class="sync-bar">
+            <span id="statusText">🔄 正在连接 Supabase 国外极速总库...</span>
+            <button onclick="fetchFromSupabase()" style="padding:4px 8px; font-size:12px; background:#2ecc71;">手动刷新</button>
         </div>
 
         <div style="margin-bottom: 30px; padding: 20px; background:#f8f9fa; border-radius:8px; border: 1px solid #e9ecef;">
@@ -124,14 +75,13 @@
             
             <input type="number" id="amount" placeholder="收入金额" style="width:140px;">
             <input type="text" id="remark" placeholder="备注 (可选)" style="width:200px;">
-            <button onclick="addRecord()">记录收入</button>
+            <button id="submitBtn" onclick="addRecord()" disabled>连接中...</button>
         </div>
 
         <div class="totals" id="totals"></div>
 
-        <h3>📋 所有记录</h3>
+        <h3>📋 所有记录 (Supabase 全球秒级多端同步)</h3>
         <button onclick="exportCSV()" style="margin-bottom:10px;">导出 CSV</button>
-        <button onclick="clearAllData()" style="margin-bottom:10px; background:#e74c3c;">清空本地数据</button>
         
         <table id="recordTable">
             <thead>
@@ -149,31 +99,66 @@
 
     <script>
         const NAMES = ["楠楠", "星辰", "哈哈", "小美", "牛爷爷", "涵涵", "拉朵", "朵拉", "伊怡", "雪悦"];
-        
+        let cloudRecords = [];
+        let supabaseClient = null;
+
+        // ==================== 【已自动填入你的专属安全密钥】 ====================
+        const SUPABASE_URL = "https://iespzvwcoadvwrpjanvu.supabase.co"; 
+        const SUPABASE_KEY = "sb_publishable_mkydSRHWTrKiSLsvnGuCtQ_r5gGvdZi";
+        // =========================================================================
+
+        try {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        } catch(e) {
+            console.error("初始化失败");
+        }
+
         window.onload = function() {
-            const savedKey = localStorage.getItem('nn_sync_key');
-            if (savedKey) {
-                document.getElementById('syncKey').value = savedKey;
+            fetchFromSupabase();
+        }
+
+        function setStatus(text, isError = false) {
+            const bar = document.getElementById('statusBar');
+            const txt = document.getElementById('statusText');
+            txt.innerText = text;
+            if(isError) {
+                bar.className = 'sync-bar error-bar';
+            } else {
+                bar.className = 'sync-bar';
             }
-            loadRecords();
-            // 首次进页面，自动去持久库里拿全队最新账本
-            downloadFromCloud(true);
         }
 
-        function onKeyChange() {
-            const key = document.getElementById('syncKey').value.trim();
-            localStorage.setItem('nn_sync_key', key);
-            downloadFromCloud(true);
+        // 1. 秒级拉取全队最新数据
+        async function fetchFromSupabase() {
+            setStatus("⏳ 正在拉取全球账本最新动态...");
+            document.getElementById('submitBtn').disabled = true;
+            try {
+                const { data, error } = await supabaseClient
+                    .from('team_income')
+                    .select('*')
+                    .order('id', { ascending: false })
+                    .limit(2000);
+                
+                if (error) throw error;
+
+                cloudRecords = data;
+                renderTable(data);
+                updateTotals(data);
+                setStatus("✅ 全球云端专线连接成功！数据已实时互通。");
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').innerText = "记录收入";
+            } catch (err) {
+                console.error(err);
+                setStatus("❌ 同步失败，请检查 Supabase 密钥或网络配置。", true);
+            }
         }
 
-        function loadRecords() {
-            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
+        function renderTable(records) {
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
-            
-            records.forEach((record, index) => {
-                const displayAmount = record.originalAmount !== undefined 
-                    ? `${record.originalAmount.toLocaleString()} ${record.unit}` 
+            records.forEach((record) => {
+                const displayAmount = record.unit === 'KK' 
+                    ? `${record.original_amount.toLocaleString()} KK` 
                     : `${parseFloat(record.amount).toLocaleString()} CNY`;
                 
                 const tr = document.createElement('tr');
@@ -182,14 +167,14 @@
                     <td>${record.name}</td>
                     <td style="text-align:right; font-weight:bold; color:#2c3e50;">${displayAmount}</td>
                     <td>${record.remark || ''}</td>
-                    <td><button class="delete-btn" onclick="deleteRecord(${index})">删除</button></td>
+                    <td><button class="delete-btn" onclick="deleteRecord(${record.id})">删除</button></td>
                 `;
                 tbody.appendChild(tr);
             });
-            updateTotals(records);
         }
-        
-        function addRecord() {
+
+        // 2. 记账并实时广播给全队
+        async function addRecord() {
             const nameSelect = document.getElementById('nameSelect');
             const unitSelect = document.getElementById('unitSelect');
             const amountInput = document.getElementById('amount');
@@ -202,41 +187,56 @@
             if (!name) { alert('请选择人物！'); return; }
             if (!amount || amount <= 0) { alert('请输入有效金额！'); return; }
             
+            const originalAmount = amount;
             if (unit === 'KK') { amount = amount / 13500; }
             
-            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
-            records.unshift({
-                date: new Date().toLocaleString('zh-CN'),
-                name: name,
-                amount: amount,        
-                originalAmount: parseFloat(amountInput.value),
-                unit: unit,
-                remark: remarkInput.value.trim()
-            });
-            
-            localStorage.setItem('incomeRecords', JSON.stringify(records));
-            
-            amountInput.value = '';
-            remarkInput.value = '';
-            nameSelect.value = '';
-            
-            loadRecords();
-            uploadToCloud(true);
+            setStatus("⏳ 正在同步新账目至全球总库...");
+            try {
+                const { error } = await supabaseClient
+                    .from('team_income')
+                    .insert([
+                        { 
+                            date: new Date().toLocaleString('zh-CN'), 
+                            name: name, 
+                            amount: amount, 
+                            original_amount: originalAmount, 
+                            unit: unit, 
+                            remark: remarkInput.value.trim() 
+                        }
+                    ]);
+                
+                if (error) throw error;
+
+                amountInput.value = '';
+                remarkInput.value = '';
+                nameSelect.value = '';
+                
+                await fetchFromSupabase();
+            } catch(e) {
+                alert("保存失败，请检查云端连接！");
+            }
         }
-        
-        function deleteRecord(index) {
-            if (!confirm('确定删除这条记录吗？')) return;
-            let records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
-            records.splice(index, 1);
-            localStorage.setItem('incomeRecords', JSON.stringify(records));
-            loadRecords();
-            uploadToCloud(true);
+
+        // 3. 云端精准物理删除
+        async function deleteRecord(id) {
+            if(!confirm("确定要删除这条记录吗？这会同步删除所有队员手机上的此条记录！")) return;
+            setStatus("⏳ 正在从全球总库中彻底擦除...");
+            try {
+                const { error } = await supabaseClient
+                    .from('team_income')
+                    .delete()
+                    .eq('id', id);
+                
+                if (error) throw error;
+                await fetchFromSupabase();
+            } catch(e) {
+                alert("删除失败");
+            }
         }
-        
+
         function updateTotals(records) {
             const totalsDiv = document.getElementById('totals');
-            let html = '<h3>📊 收入统计</h3>';
-            
+            let html = '<h3>📊 全队实时统计</h3>';
             const personTotals = {};
             NAMES.forEach(name => personTotals[name] = 0);
             let grandTotal = 0;
@@ -248,7 +248,7 @@
                 }
             });
             
-            html += `<div class="person-total"><strong>总收入总量</strong><span style="font-size:22px; color:#27ae60;">¥ ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
+            html += `<div class="person-total"><strong>全队总收入</strong><span style="font-size:22px; color:#27ae60;">¥ ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
             NAMES.forEach(name => {
                 const total = personTotals[name];
                 if (total > 0) {
@@ -258,109 +258,15 @@
             totalsDiv.innerHTML = html;
         }
 
-        // ==================== 【100% 稳定永不删数据的持久引擎】 ====================
-        function getCleanKey() {
-            const key = document.getElementById('syncKey').value.trim();
-            if(!key) { alert('请先输入团队同步暗号！'); return null; }
-            localStorage.setItem('nn_sync_key', key);
-            // 转换为绝对纯净的安全暗号后缀
-            return btoa(encodeURIComponent(key)).replace(/[^a-zA-Z0-9]/g, '');
-        }
-
-        // 1. 推送
-        async function uploadToCloud(isAuto = false) {
-            const key = getCleanKey();
-            if(!key) return;
-            const records = localStorage.getItem('incomeRecords') || '[]';
-            document.getElementById('syncStatus').style.color = '#f39c12';
-            document.getElementById('syncStatus').innerText = '⏳ 正在同步云端...';
-
-            try {
-                // 使用 kvstore 专属无冲突通道，只允许用 POST 进行纯覆盖更新
-                const response = await fetch(`https://api.keyvalue.xyz/new/nannan_v3_pro_${key}`, {
-                    method: 'POST',
-                    body: records
-                });
-
-                if(response.ok) {
-                    const tokenUrl = await response.text();
-                    // 从返回的绝对路径中精准截取属于你们的专属房间序列号
-                    const token = tokenUrl.split('/').pop().trim();
-                    localStorage.setItem(`nn_token_v3_${key}`, token);
-                    
-                    document.getElementById('syncStatus').style.color = '#2ecc71';
-                    document.getElementById('syncStatus').innerText = '✅ 云端已同步(' + new Date().toLocaleTimeString() + ')';
-                    if(!isAuto) alert('🚀 数据已成功成功推送到持久云端总库！');
-                } else {
-                    throw new Error();
-                }
-            } catch (e) {
-                document.getElementById('syncStatus').style.color = '#e74c3c';
-                document.getElementById('syncStatus').innerText = '❌ 同步失败';
-            }
-        }
-
-        // 2. 拉取
-        async function downloadFromCloud(isAuto = false) {
-            const key = getCleanKey();
-            if(!key) return;
-            document.getElementById('syncStatus').style.color = '#f39c12';
-            document.getElementById('syncStatus').innerText = '⏳ 正在检索云端账本...';
-
-            let token = localStorage.getItem(`nn_token_v3_${key}`);
-            
-            // 如果换了新浏览器导致本地没有缓存的房间号，自动用降级专属硬通道反向追溯
-            if(!token) {
-                token = `PKV_${key}_NANNAN`;
-            }
-
-            try {
-                const res = await fetch(`https://api.keyvalue.xyz/${token}`);
-                if(res.ok) {
-                    const cloudData = await res.text();
-                    if(cloudData && cloudData.trim() !== "" && cloudData !== "{}") {
-                        if (isAuto) {
-                            localStorage.setItem('incomeRecords', cloudData);
-                            loadRecords();
-                            document.getElementById('syncStatus').style.color = '#2ecc71';
-                            document.getElementById('syncStatus').innerText = '✅ 数据自动刷新成功';
-                        } else {
-                            if(confirm('☁️ 发现云端有更新的账目，是否覆盖并同步到当前手机上？')) {
-                                localStorage.setItem('incomeRecords', cloudData);
-                                loadRecords();
-                                document.getElementById('syncStatus').style.color = '#2ecc71';
-                                document.getElementById('syncStatus').innerText = '✅ 完美同步';
-                                alert('🎉 账本已成功同步到全队最新状态！');
-                            }
-                        }
-                        return;
-                    }
-                }
-                
-                document.getElementById('syncStatus').style.color = '#7f8c8d';
-                document.getElementById('syncStatus').innerText = '☁️ 云端新房间(请先记账或点推送)';
-            } catch (e) {
-                document.getElementById('syncStatus').style.color = '#e74c3c';
-                document.getElementById('syncStatus').innerText = '❌ 网络拉取失败';
-            }
-        }
-
         function exportCSV() {
-            const records = JSON.parse(localStorage.getItem('incomeRecords') || '[]');
-            if (records.length === 0) { alert('没有记录可导出！'); return; }
-            let csv = "\uFEFF日期,姓名,统一换算CNY,备注\n";
-            records.forEach(r => { csv += `"${r.date}","${r.name}",${r.amount},"${r.remark || ''}"\n`; });
+            if (cloudRecords.length === 0) { alert('没有记录可导出！'); return; }
+            let csv = "\uFEFF日期,姓名,CNY金额,原始金额,币种,备注\n";
+            cloudRecords.forEach(r => { csv += `"${r.date}","${r.name}",${r.amount},${r.original_amount},"${r.unit}","${r.remark || ''}"\n`; });
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
-            link.download = `收入记录_${new Date().toISOString().slice(0,10)}.csv`;
+            link.download = `楠楠团队全球账本.csv`;
             link.click();
-        }
-        
-        function clearAllData() {
-            if (!confirm('⚠️ 确定要清空本地数据吗？（不会影响云端总库）')) return;
-            localStorage.removeItem('incomeRecords');
-            loadRecords();
         }
     </script>
 </body>
