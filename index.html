@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>收入记录器 - 楠楠团队 (国外云端极速版)</title>
+    <title>收入记录器 - 楠楠团队 (增删全动态同步版)</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
@@ -40,32 +40,42 @@
             border: 1px solid #bce0ff;
         }
         .error-bar { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        
+        /* 团队管理区域样式 */
+        .manage-box { background: #fdf6ec; border: 1px solid #f5dab1; padding: 15px; border-radius: 8px; margin-bottom: 15px; color: #e6a23c; }
+        .member-tags-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #fff; border-radius: 6px; border: 1px dashed #f5dab1; }
+        .member-tag { background: #fdf6ec; color: #e6a23c; border: 1px solid #f5dab1; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+        .member-tag .remove-icon { color: #f56c6c; cursor: pointer; font-weight: bold; font-size: 16px; }
+        .member-tag .remove-icon:hover { color: #f5222d; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>💰 收入记录器</h1>
-        <p style="text-align:center; color:#7f8c8d; margin-top: 0;">楠楠、星辰、哈哈、小美、牛爷爷、涵涵、拉朵、朵拉、伊怡、雪悦</p>
+        <p id="teamListOverview" style="text-align:center; color:#7f8c8d; margin-top: 0; font-size: 14px;">正在加载团队成员...</p>
 
         <div id="statusBar" class="sync-bar">
             <span id="statusText">🔄 正在连接 Supabase 国外极速总库...</span>
-            <button onclick="fetchFromSupabase()" style="padding:4px 8px; font-size:12px; background:#2ecc71;">手动刷新</button>
+            <button onclick="initAppData()" style="padding:4px 8px; font-size:12px; background:#2ecc71;">手动刷新</button>
+        </div>
+
+        <div class="manage-box">
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
+                <strong style="color: #ca7c1e;">👥 队员管理：</strong>
+                <input type="text" id="newMemberName" placeholder="输入新队员名字" style="width: 150px; padding: 6px 10px; font-size: 14px;">
+                <button onclick="addTeamMember()" style="background: #e6a23c; padding: 6px 12px; font-size: 14px;">➕ 添加</button>
+                <button onclick="toggleManageMode()" id="toggleManageBtn" style="background: #909399; padding: 6px 12px; font-size: 14px;">⚙️ 管理/删除成员</button>
+            </div>
+            <div id="memberDeletePanel" style="display: none; margin-top: 10px;">
+                <span style="font-size: 13px; color: #ca7c1e;">⚠️ 点击名字后面的小红叉 <b>×</b> 即可从云端彻底删除该成员：</span>
+                <div id="memberTagsList" class="member-tags-container"></div>
+            </div>
         </div>
 
         <div style="margin-bottom: 30px; padding: 20px; background:#f8f9fa; border-radius:8px; border: 1px solid #e9ecef;">
             <h3>📝 新收入记录</h3>
             <select id="nameSelect">
-                <option value="">选择人物</option>
-                <option value="楠楠">楠楠</option>
-                <option value="星辰">星辰</option>
-                <option value="哈哈">哈哈</option>
-                <option value="小美">小美</option>
-                <option value="牛爷爷">牛爷爷</option>
-                <option value="涵涵">涵涵</option>
-                <option value="拉朵">拉朵</option>
-                <option value="朵拉">朵拉</option>
-                <option value="伊怡">伊怡</option>
-                <option value="雪悦">雪悦</option>
+                <option value="">正在加载人物...</option>
             </select>
             
             <select id="unitSelect" style="width:100px;">
@@ -98,9 +108,12 @@
     </div>
 
     <script>
-        const NAMES = ["楠楠", "星辰", "哈哈", "小美", "牛爷爷", "涵涵", "拉朵", "朵拉", "伊怡", "雪悦"];
+        // 动态人员名单原始数据（包含 id 和 name）
+        let memberRawData = [];
+        let currentNames = [];
         let cloudRecords = [];
         let supabaseClient = null;
+        let isManageMode = false;
 
         // ==================== 【已自动填入你的专属安全密钥】 ====================
         const SUPABASE_URL = "https://iespzvwcoadvwrpjanvu.supabase.co"; 
@@ -114,24 +127,137 @@
         }
 
         window.onload = function() {
-            fetchFromSupabase();
+            initAppData();
+        }
+
+        // 一键刷新人员和账本
+        async function initAppData() {
+            document.getElementById('submitBtn').disabled = true;
+            const membersOk = await fetchTeamMembers();
+            if(membersOk) {
+                await fetchFromSupabase();
+            }
         }
 
         function setStatus(text, isError = false) {
             const bar = document.getElementById('statusBar');
             const txt = document.getElementById('statusText');
             txt.innerText = text;
-            if(isError) {
-                bar.className = 'sync-bar error-bar';
-            } else {
-                bar.className = 'sync-bar';
+            if(isError) { bar.className = 'sync-bar error-bar'; } else { bar.className = 'sync-bar'; }
+        }
+
+        // 1. 从云端拉取最新的队员名单并渲染所有区域
+        async function fetchTeamMembers() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('team_members')
+                    .select('id, name')
+                    .order('id', { ascending: true });
+                
+                if (error) throw error;
+                
+                memberRawData = data;
+                currentNames = data.map(item => item.name);
+                
+                // 更新顶栏的人员概览
+                document.getElementById('teamListOverview').innerText = currentNames.join('、');
+                
+                // 更新记账下拉选择菜单
+                const nameSelect = document.getElementById('nameSelect');
+                nameSelect.innerHTML = '<option value="">选择人物</option>';
+                currentNames.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.innerText = name;
+                    nameSelect.appendChild(opt);
+                });
+
+                // 更新管理面板里的删除标签
+                renderMemberTags();
+                
+                return true;
+            } catch (err) {
+                console.error(err);
+                setStatus("❌ 加载人员名单失败，请检查云端连接。", true);
+                return false;
             }
         }
 
-        // 1. 秒级拉取全队最新数据
+        // 展开/收起删除管理面板
+        function toggleManageMode() {
+            isManageMode = !isManageMode;
+            const panel = document.getElementById('memberDeletePanel');
+            const btn = document.getElementById('toggleManageBtn');
+            if(isManageMode) {
+                panel.style.display = 'block';
+                btn.innerText = "❌ 关闭管理面板";
+                btn.style.background = '#909399';
+            } else {
+                panel.style.style.display = 'none';
+                panel.style.display = 'none';
+                btn.innerText = "⚙️ 管理/删除成员";
+                btn.style.background = '#e6a23c';
+            }
+        }
+
+        // 渲染带有删除红叉的人员标签
+        function renderMemberTags() {
+            const container = document.getElementById('memberTagsList');
+            container.innerHTML = '';
+            memberRawData.forEach(member => {
+                const tag = document.createElement('div');
+                tag.className = 'member-tag';
+                tag.innerHTML = `
+                    <span>${member.name}</span>
+                    <span class="remove-icon" onclick="deleteTeamMember(${member.id}, '${member.name}')">×</span>
+                `;
+                container.appendChild(tag);
+            });
+        }
+
+        // 2. 动态添加新队员
+        async function addTeamMember() {
+            const input = document.getElementById('newMemberName');
+            const name = input.value.trim();
+            if(!name) { alert("请输入要添加的队员名字！"); return; }
+            if(currentNames.includes(name)) { alert("该队员名字已在团队中！"); return; }
+
+            setStatus("⏳ 正在同步新队员到云端名单...");
+            try {
+                const { error } = await supabaseClient
+                    .from('team_members')
+                    .insert([{ name: name }]);
+                
+                if(error) throw error;
+                input.value = '';
+                await initAppData();
+            } catch(e) {
+                alert("添加新成员失败，请重试！");
+            }
+        }
+
+        // 3. 动态删除队员（核心新增功能）
+        async function deleteTeamMember(id, name) {
+            const msg = `⚠️ 确定要删除队员【${name}】吗？\n\n注意：这只是把名字从下拉菜单里删掉。为了防止旧账对不上，该队员以往记录过的历史账目和历史统计【不会】被抹去。`;
+            if(!confirm(msg)) return;
+
+            setStatus(`⏳ 正在将 ${name} 从云端名单移出...`);
+            try {
+                const { error } = await supabaseClient
+                    .from('team_members')
+                    .delete()
+                    .eq('id', id);
+                
+                if(error) throw error;
+                await initAppData();
+            } catch(e) {
+                alert("删除成员失败，请重试！");
+            }
+        }
+
+        // 4. 秒级拉取全队最新账本数据
         async function fetchFromSupabase() {
             setStatus("⏳ 正在拉取全球账本最新动态...");
-            document.getElementById('submitBtn').disabled = true;
             try {
                 const { data, error } = await supabaseClient
                     .from('team_income')
@@ -144,12 +270,12 @@
                 cloudRecords = data;
                 renderTable(data);
                 updateTotals(data);
-                setStatus("✅ 全球云端专线连接成功！数据已实时互通。");
+                setStatus("✅ 全球云端专线连接成功！数据与人员已实时互通。");
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('submitBtn').innerText = "记录收入";
             } catch (err) {
                 console.error(err);
-                setStatus("❌ 同步失败，请检查 Supabase 密钥或网络配置。", true);
+                setStatus("❌ 同步账本失败，请检查网络配置。", true);
             }
         }
 
@@ -173,7 +299,7 @@
             });
         }
 
-        // 2. 记账并实时广播给全队
+        // 5. 记账并实时广播给全队
         async function addRecord() {
             const nameSelect = document.getElementById('nameSelect');
             const unitSelect = document.getElementById('unitSelect');
@@ -217,7 +343,7 @@
             }
         }
 
-        // 3. 云端精准物理删除
+        // 6. 云端精准删除单条收入记录
         async function deleteRecord(id) {
             if(!confirm("确定要删除这条记录吗？这会同步删除所有队员手机上的此条记录！")) return;
             setStatus("⏳ 正在从全球总库中彻底擦除...");
@@ -238,23 +364,37 @@
             const totalsDiv = document.getElementById('totals');
             let html = '<h3>📊 全队实时统计</h3>';
             const personTotals = {};
-            NAMES.forEach(name => personTotals[name] = 0);
+            
+            // 用当前活着的队员名单初始化
+            currentNames.forEach(name => personTotals[name] = 0);
             let grandTotal = 0;
             
             records.forEach(r => {
-                if (personTotals[r.name] !== undefined) {
-                    personTotals[r.name] += parseFloat(r.amount);
-                    grandTotal += parseFloat(r.amount);
+                // 如果账本里包含已经被删掉的旧人，动态为他保留统计位置，确保历史总账不漏
+                if (personTotals[r.name] === undefined) {
+                    personTotals[r.name] = 0;
                 }
+                personTotals[r.name] += parseFloat(r.amount);
+                grandTotal += parseFloat(r.amount);
             });
             
             html += `<div class="person-total"><strong>全队总收入</strong><span style="font-size:22px; color:#27ae60;">¥ ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
-            NAMES.forEach(name => {
-                const total = personTotals[name];
+            
+            // 先输出当前活着的队员的钱
+            currentNames.forEach(name => {
+                const total = personTotals[name] || 0;
                 if (total > 0) {
                     html += `<div class="person-total"><span>${name}</span><span>¥ ${total.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
                 }
             });
+
+            // 如果有被删掉名字的离职旧队员且他有历史账，单独列在下面
+            Object.keys(personTotals).forEach(name => {
+                if (!currentNames.includes(name) && personTotals[name] > 0) {
+                    html += `<div class="person-total" style="color:#909399;"><span>${name} (已移出名单历史留存)</span><span>¥ ${personTotals[name].toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
+                }
+            });
+
             totalsDiv.innerHTML = html;
         }
 
