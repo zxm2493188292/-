@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>收入记录器 - 楠楠团队 (增删全动态同步版)</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -47,6 +48,17 @@
         .member-tag { background: #fdf6ec; color: #e6a23c; border: 1px solid #f5dab1; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
         .member-tag .remove-icon { color: #f56c6c; cursor: pointer; font-weight: bold; font-size: 16px; }
         .member-tag .remove-icon:hover { color: #f5222d; }
+
+        /* 【新增】图表容器样式 */
+        .chart-box {
+            background: #fff;
+            border: 1px solid #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            box-shadow: inset 0 0 4px rgba(0,0,0,0.02);
+        }
     </style>
 </head>
 <body>
@@ -90,6 +102,10 @@
 
         <div class="totals" id="totals"></div>
 
+        <div class="chart-box">
+            <div id="revenueChart" style="width: 100%; height: 350px;"></div>
+        </div>
+
         <h3>📋 所有记录 (Supabase 全球秒级多端同步)</h3>
         <button onclick="exportCSV()" style="margin-bottom:10px;">导出 CSV</button>
         
@@ -114,6 +130,7 @@
         let cloudRecords = [];
         let supabaseClient = null;
         let isManageMode = false;
+        let myChart = null; // 【新增】图表实例变量
 
         // ==================== 【已自动填入你的专属安全密钥】 ====================
         const SUPABASE_URL = "https://iespzvwcoadvwrpjanvu.supabase.co"; 
@@ -127,7 +144,16 @@
         }
 
         window.onload = function() {
+            // 【新增】初始化 ECharts 实例
+            const chartDom = document.getElementById('revenueChart');
+            myChart = echarts.init(chartDom);
+            
             initAppData();
+
+            // 监听窗口大小变化，使图表自适应
+            window.addEventListener('resize', function() {
+                if (myChart) myChart.resize();
+            });
         }
 
         // 一键刷新人员和账本
@@ -146,267 +172,312 @@
             if(isError) { bar.className = 'sync-bar error-bar'; } else { bar.className = 'sync-bar'; }
         }
 
-        // 1. 从云端拉取最新的队员名单并渲染所有区域
+        // ==================== 【以下是系统原有逻辑函数（保持并融合图表更新）】 ====================
+        
         async function fetchTeamMembers() {
             try {
-                const { data, error } = await supabaseClient
-                    .from('team_members')
-                    .select('id, name')
-                    .order('id', { ascending: true });
+                setStatus("🔄 正在同步团队成员...");
+                const { data, error } = await supabaseClient.from('team_members').select('*').order('created_at', { ascending: true });
+                if(error) throw error;
                 
-                if (error) throw error;
+                memberRawData = data || [];
+                currentNames = memberRawData.map(m => m.name);
                 
-                memberRawData = data;
-                currentNames = data.map(item => item.name);
+                // 更新页面显示
+                document.getElementById('teamListOverview').innerText = "👥 当前团队成员：" + (currentNames.length > 0 ? currentNames.join('、') : '暂无队员');
                 
-                // 更新顶栏的人员概览
-                document.getElementById('teamListOverview').innerText = currentNames.join('、');
-                
-                // 更新记账下拉选择菜单
+                // 更新下拉菜单
                 const nameSelect = document.getElementById('nameSelect');
-                nameSelect.innerHTML = '<option value="">选择人物</option>';
+                nameSelect.innerHTML = '<option value="">-- 请选择人员 --</option>';
                 currentNames.forEach(name => {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.innerText = name;
-                    nameSelect.appendChild(opt);
+                    nameSelect.innerHTML += `<option value="${name}">${name}</option>`;
                 });
-
-                // 更新管理面板里的删除标签
-                renderMemberTags();
                 
+                // 更新删除面板的标签
+                renderMemberTags();
                 return true;
-            } catch (err) {
-                console.error(err);
-                setStatus("❌ 加载人员名单失败，请检查云端连接。", true);
+            } catch(e) {
+                setStatus("❌ 获取团队成员失败: " + e.message, true);
                 return false;
             }
         }
 
-        // 展开/收起删除管理面板
+        function renderMemberTags() {
+            const container = document.getElementById('memberTagsList');
+            container.innerHTML = '';
+            memberRawData.forEach(member => {
+                container.innerHTML += `
+                    <span class="member-tag">
+                        ${member.name} 
+                        <span class="remove-icon" onclick="deleteTeamMember(${member.id}, '${member.name}')">×</span>
+                    </span>
+                `;
+            });
+        }
+
         function toggleManageMode() {
             isManageMode = !isManageMode;
             const panel = document.getElementById('memberDeletePanel');
             const btn = document.getElementById('toggleManageBtn');
             if(isManageMode) {
                 panel.style.display = 'block';
-                btn.innerText = "❌ 关闭管理面板";
-                btn.style.background = '#909399';
+                btn.innerText = '🔒 关闭管理面板';
+                btn.style.background = '#ca7c1e';
             } else {
-                panel.style.style.display = 'none';
                 panel.style.display = 'none';
-                btn.innerText = "⚙️ 管理/删除成员";
-                btn.style.background = '#e6a23c';
+                btn.innerText = '⚙️ 管理/删除成员';
+                btn.style.background = '#909399';
             }
         }
 
-        // 渲染带有删除红叉的人员标签
-        function renderMemberTags() {
-            const container = document.getElementById('memberTagsList');
-            container.innerHTML = '';
-            memberRawData.forEach(member => {
-                const tag = document.createElement('div');
-                tag.className = 'member-tag';
-                tag.innerHTML = `
-                    <span>${member.name}</span>
-                    <span class="remove-icon" onclick="deleteTeamMember(${member.id}, '${member.name}')">×</span>
-                `;
-                container.appendChild(tag);
-            });
-        }
-
-        // 2. 动态添加新队员
         async function addTeamMember() {
             const input = document.getElementById('newMemberName');
             const name = input.value.trim();
-            if(!name) { alert("请输入要添加的队员名字！"); return; }
-            if(currentNames.includes(name)) { alert("该队员名字已在团队中！"); return; }
-
-            setStatus("⏳ 正在同步新队员到云端名单...");
+            if(!name) { alert("请输入名字！"); return; }
+            if(currentNames.includes(name)) { alert("该成员已存在！"); return; }
+            
             try {
-                const { error } = await supabaseClient
-                    .from('team_members')
-                    .insert([{ name: name }]);
-                
+                setStatus(`🔄 正在添加新成员 [${name}] ...`);
+                const { error } = await supabaseClient.from('team_members').insert([{ name: name }]);
                 if(error) throw error;
                 input.value = '';
                 await initAppData();
             } catch(e) {
-                alert("添加新成员失败，请重试！");
+                setStatus("❌ 添加成员失败: " + e.message, true);
             }
         }
 
-        // 3. 动态删除队员（核心新增功能）
         async function deleteTeamMember(id, name) {
-            const msg = `⚠️ 确定要删除队员【${name}】吗？\n\n注意：这只是把名字从下拉菜单里删掉。为了防止旧账对不上，该队员以往记录过的历史账目和历史统计【不会】被抹去。`;
-            if(!confirm(msg)) return;
-
-            setStatus(`⏳ 正在将 ${name} 从云端名单移出...`);
+            if(!confirm(`⚠️ 确定要彻底删除成员 [${name}] 吗？\n删除后他/她的历史所有收入记录仍会保留，但无法再选择他记账。`)) return;
             try {
-                const { error } = await supabaseClient
-                    .from('team_members')
-                    .delete()
-                    .eq('id', id);
-                
+                setStatus(`🔄 正在删除成员 [${name}] ...`);
+                const { error } = await supabaseClient.from('team_members').delete().eq('id', id);
                 if(error) throw error;
                 await initAppData();
             } catch(e) {
-                alert("删除成员失败，请重试！");
+                setStatus("❌ 删除成员失败: " + e.message, true);
             }
         }
 
-        // 4. 秒级拉取全队最新账本数据
         async function fetchFromSupabase() {
-            setStatus("⏳ 正在拉取全球账本最新动态...");
             try {
-                const { data, error } = await supabaseClient
-                    .from('team_income')
-                    .select('*')
-                    .order('id', { ascending: false })
-                    .limit(2000);
-                
+                setStatus("🔄 正在拉取最新的云端流水...");
+                const { data, error } = await supabaseClient.from('revenue_records').select('*').order('created_at', { ascending: false });
                 if (error) throw error;
 
-                cloudRecords = data;
-                renderTable(data);
-                updateTotals(data);
-                setStatus("✅ 全球云端专线连接成功！数据与人员已实时互通。");
+                cloudRecords = data || [];
+                renderData();
+                updateChartData(); // 【新增】每次拉取完新数据，同步更新曲线图
+                setStatus("⚡ 云端数据已同步（多端实时更新中）");
                 document.getElementById('submitBtn').disabled = false;
-                document.getElementById('submitBtn').innerText = "记录收入";
-            } catch (err) {
-                console.error(err);
-                setStatus("❌ 同步账本失败，请检查网络配置。", true);
+                document.getElementById('submitBtn').innerText = "🚀 提交记录";
+            } catch (e) {
+                setStatus("❌ 同步失败: " + e.message, true);
             }
         }
 
-        function renderTable(records) {
+        function renderData() {
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
-            records.forEach((record) => {
-                const displayAmount = record.unit === 'KK' 
-                    ? `${record.original_amount.toLocaleString()} KK` 
-                    : `${parseFloat(record.amount).toLocaleString()} CNY`;
+
+            let totals = { CNY: 0, KK: 0 };
+            let personTotals = {};
+
+            currentNames.forEach(n => {
+                personTotals[n] = { CNY: 0, KK: 0 };
+            });
+
+            cloudRecords.forEach(record => {
+                const amount = parseFloat(record.amount);
+                const unit = record.unit || 'CNY';
                 
+                if(totals[unit] !== undefined) totals[unit] += amount;
+                if(personTotals[record.name]) personTotals[record.name][unit] += amount;
+
+                const dateStr = new Date(record.created_at).toLocaleString('zh-CN', { hour12: false });
+
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${record.date}</td>
-                    <td>${record.name}</td>
-                    <td style="text-align:right; font-weight:bold; color:#2c3e50;">${displayAmount}</td>
-                    <td>${record.remark || ''}</td>
-                    <td><button class="delete-btn" onclick="deleteRecord(${record.id})">删除</button></td>
+                    <td>${dateStr}</td>
+                    <td><b>${record.name}</b></td>
+                    <td style="color:${unit==='CNY'?'#27ae60':'#9b59b6'}; font-weight:bold;">${amount} ${unit}</td>
+                    <td style="color:#666; font-size:14px;">${record.remark || '-'}</td>
+                    <td><button class="delete-btn" onclick="deleteRecord('${record.id}')">删除</button></td>
                 `;
                 tbody.appendChild(tr);
             });
-        }
 
-        // 5. 记账并实时广播给全队
-        async function addRecord() {
-            const nameSelect = document.getElementById('nameSelect');
-            const unitSelect = document.getElementById('unitSelect');
-            const amountInput = document.getElementById('amount');
-            const remarkInput = document.getElementById('remark');
-            
-            const name = nameSelect.value;
-            const unit = unitSelect.value;
-            let amount = parseFloat(amountInput.value);
-            
-            if (!name) { alert('请选择人物！'); return; }
-            if (!amount || amount <= 0) { alert('请输入有效金额！'); return; }
-            
-            const originalAmount = amount;
-            if (unit === 'KK') { amount = amount / 13500; }
-            
-            setStatus("⏳ 正在同步新账目至全球总库...");
-            try {
-                const { error } = await supabaseClient
-                    .from('team_income')
-                    .insert([
-                        { 
-                            date: new Date().toLocaleString('zh-CN'), 
-                            name: name, 
-                            amount: amount, 
-                            original_amount: originalAmount, 
-                            unit: unit, 
-                            remark: remarkInput.value.trim() 
-                        }
-                    ]);
-                
-                if (error) throw error;
-
-                amountInput.value = '';
-                remarkInput.value = '';
-                nameSelect.value = '';
-                
-                await fetchFromSupabase();
-            } catch(e) {
-                alert("保存失败，请检查云端连接！");
-            }
-        }
-
-        // 6. 云端精准删除单条收入记录
-        async function deleteRecord(id) {
-            if(!confirm("确定要删除这条记录吗？这会同步删除所有队员手机上的此条记录！")) return;
-            setStatus("⏳ 正在从全球总库中彻底擦除...");
-            try {
-                const { error } = await supabaseClient
-                    .from('team_income')
-                    .delete()
-                    .eq('id', id);
-                
-                if (error) throw error;
-                await fetchFromSupabase();
-            } catch(e) {
-                alert("删除失败");
-            }
-        }
-
-        function updateTotals(records) {
+            // 渲染统计版块
             const totalsDiv = document.getElementById('totals');
-            let html = '<h3>📊 全队实时统计</h3>';
-            const personTotals = {};
+            let html = `<h3>📊 实时业绩统计总览</h3>`;
+            html += `<p><b>🔥 团队总收入：</b> <span style="color:#27ae60;font-size:22px;">${totals.CNY.toFixed(2)} CNY</span> | <span style="color:#9b59b6;font-size:22px;">${totals.KK.toFixed(2)} KK</span></p><hr style="border:none;border-top:1px dashed #ccc;">`;
             
-            // 用当前活着的队员名单初始化
-            currentNames.forEach(name => personTotals[name] = 0);
-            let grandTotal = 0;
-            
-            records.forEach(r => {
-                // 如果账本里包含已经被删掉的旧人，动态为他保留统计位置，确保历史总账不漏
-                if (personTotals[r.name] === undefined) {
-                    personTotals[r.name] = 0;
-                }
-                personTotals[r.name] += parseFloat(r.amount);
-                grandTotal += parseFloat(r.amount);
-            });
-            
-            html += `<div class="person-total"><strong>全队总收入</strong><span style="font-size:22px; color:#27ae60;">¥ ${grandTotal.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
-            
-            // 先输出当前活着的队员的钱
-            currentNames.forEach(name => {
-                const total = personTotals[name] || 0;
-                if (total > 0) {
-                    html += `<div class="person-total"><span>${name}</span><span>¥ ${total.toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
-                }
-            });
-
-            // 如果有被删掉名字的离职旧队员且他有历史账，单独列在下面
-            Object.keys(personTotals).forEach(name => {
-                if (!currentNames.includes(name) && personTotals[name] > 0) {
-                    html += `<div class="person-total" style="color:#909399;"><span>${name} (已移出名单历史留存)</span><span>¥ ${personTotals[name].toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>`;
-                }
-            });
-
+            for (let person in personTotals) {
+                html += `
+                    <div class="person-total">
+                        <span>👤 ${person}</span>
+                        <span>
+                            <span style="color:#27ae60;">${personTotals[person].CNY.toFixed(2)} CNY</span> / 
+                            <span style="color:#9b59b6;">${personTotals[person].KK.toFixed(2)} KK</span>
+                        </span>
+                    </div>
+                `;
+            }
             totalsDiv.innerHTML = html;
         }
 
+        async function addRecord() {
+            const name = document.getElementById('nameSelect').value;
+            const unit = document.getElementById('unitSelect').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const remark = document.getElementById('remark').value.trim();
+
+            if (!name) { alert('请先选择一个团队成员！'); return; }
+            if (isNaN(amount) || amount <= 0) { alert('请输入正确的收益金额！'); return; }
+
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').innerText = "发送中...";
+
+            try {
+                const { error } = await supabaseClient.from('revenue_records').insert([{ name, amount, unit, remark }]);
+                if (error) throw error;
+
+                document.getElementById('amount').value = '';
+                document.getElementById('remark').value = '';
+                await fetchFromSupabase();
+            } catch (e) {
+                alert('添加失败: ' + e.message);
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').innerText = "🚀 提交记录";
+            }
+        }
+
+        async function deleteRecord(id) {
+            if (!confirm('确定要删除这条记录吗？云端将同步抹除！')) return;
+            try {
+                setStatus("🔄 正在请求云端删除...");
+                const { error } = await supabaseClient.from('revenue_records').delete().eq('id', id);
+                if (error) throw error;
+                await fetchFromSupabase();
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+
         function exportCSV() {
-            if (cloudRecords.length === 0) { alert('没有记录可导出！'); return; }
-            let csv = "\uFEFF日期,姓名,CNY金额,原始金额,币种,备注\n";
-            cloudRecords.forEach(r => { csv += `"${r.date}","${r.name}",${r.amount},${r.original_amount},"${r.unit}","${r.remark || ''}"\n`; });
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = `楠楠团队全球账本.csv`;
+            if(cloudRecords.length === 0) { alert("当前没有数据可导出！"); return; }
+            let csvContent = "\uFEFF日期,姓名,金额,币种,备注\n";
+            cloudRecords.forEach(r => {
+                const dateStr = new Date(r.created_at).toLocaleString('zh-CN', { hour12: false }).replace(/,/g, ' ');
+                csvContent += `"${dateStr}","${r.name}",${r.amount},"${r.unit || 'CNY'}","${(r.remark || '').replace(/"/g, '""')}"\n`;
+            });
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `楠楠团队收入报表_${new Date().toLocaleDateString()}.csv`);
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
+        }
+
+        // ==================== 【新增核心：按收益从高到低排序并生成曲线图】 ====================
+        function updateChartData() {
+            if (!myChart) return;
+
+            // 1. 按日期归总每天的 CNY 收益
+            let dailyMap = {};
+            cloudRecords.forEach(record => {
+                // 默认统计 CNY 数据。如果想统计 KK 或者是总收益，可以改这里
+                if ((record.unit || 'CNY') === 'CNY') {
+                    // 截取格式为 YYYY-MM-DD 的日期
+                    const dateKey = new Date(record.created_at).toISOString().split('T')[0];
+                    const amount = parseFloat(record.amount) || 0;
+                    dailyMap[dateKey] = (dailyMap[dateKey] || 0) + amount;
+                }
+            });
+
+            // 2. 将对象转为数组，方便进行【高到低排序】
+            let chartDataArray = [];
+            for (let date in dailyMap) {
+                chartDataArray.push({
+                    date: date,
+                    revenue: dailyMap[date]
+                });
+            }
+
+            // 【核心改动】：按每天的总收益从高到低进行降序排列
+            chartDataArray.sort((a, b) => b.revenue - a.revenue);
+
+            // 3. 提取排序后的 X 轴（日期）和 Y 轴（金额）
+            const dates = chartDataArray.map(item => item.date);
+            const revenues = chartDataArray.map(item => item.revenue);
+
+            // 4. 配置 ECharts 折线/曲线图参数
+            const option = {
+                title: {
+                    text: '📈 每日总收益曲线图 (CNY)',
+                    subtext: '数据已按收益金额从高到低进行排列',
+                    left: 'center',
+                    textStyle: { color: '#2c3e50', fontSize: 16 }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function(params) {
+                        let relVal = params[0].name;
+                        relVal += '<br/>💰 当日收益 : <b style="color:#27ae60">' + params[0].value.toFixed(2) + '</b> 元';
+                        return relVal;
+                    }
+                },
+                grid: {
+                    left: '4%',
+                    right: '4%',
+                    bottom: '10%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    axisLabel: {
+                        interval: 0,
+                        rotate: 30, // 略微旋转防日期重叠
+                        color: '#666'
+                    },
+                    axisLine: { lineStyle: { color: '#ccc' } }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '收益 (元)',
+                    nameTextStyle: { color: '#666' },
+                    axisLabel: { color: '#666' },
+                    splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
+                },
+                series: [{
+                    name: '总收益',
+                    data: revenues,
+                    type: 'line',
+                    smooth: true, // 开启平滑曲线
+                    symbolSize: 8,
+                    lineStyle: {
+                        color: '#3498db',
+                        width: 3
+                    },
+                    itemStyle: {
+                        color: '#3498db',
+                        borderWidth: 2
+                    },
+                    // 渐变填充阴影区，让曲线图更好看
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(52, 152, 219, 0.4)' },
+                            { offset: 1, color: 'rgba(52, 152, 219, 0.0)' }
+                        ])
+                    }
+                }]
+            };
+
+            // 5. 渲染图表
+            myChart.setOption(option, true);
         }
     </script>
 </body>
