@@ -47,6 +47,31 @@
         .member-tag { background: #fdf6ec; color: #e6a23c; border: 1px solid #f5dab1; padding: 4px 8px; border-radius: 4px; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
         .member-tag .remove-icon { color: #f56c6c; cursor: pointer; font-weight: bold; font-size: 16px; }
         .member-tag .remove-icon:hover { color: #f5222d; }
+
+        .stats-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+            border-left: 5px solid #3498db;
+        }
+        .stat-title {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #27ae60;
+        }
     </style>
 </head>
 <body>
@@ -89,6 +114,9 @@
         </div>
 
         <div class="totals" id="totals"></div>
+
+        <div id="statsPanel" class="stats-panel"></div>
+        <div class="totals" id="dailyTotals"></div>
 
         <h3>📋 所有记录 (Supabase 全球秒级多端同步)</h3>
         <button onclick="exportCSV()" style="margin-bottom:10px;">导出 CSV</button>
@@ -270,6 +298,8 @@
                 cloudRecords = data;
                 renderTable(data);
                 updateTotals(data);
+                updateStatsPanel(data);
+                updateDailyTotals(data);
                 setStatus("✅ 全球云端专线连接成功！数据与人员已实时互通。");
                 document.getElementById('submitBtn').disabled = false;
                 document.getElementById('submitBtn').innerText = "记录收入";
@@ -397,6 +427,84 @@
 
             totalsDiv.innerHTML = html;
         }
+
+        
+        function updateStatsPanel(records) {
+            const panel = document.getElementById('statsPanel');
+
+            let totalIncome = 0;
+            let todayIncome = 0;
+            let yesterdayIncome = 0;
+            let monthIncome = 0;
+
+            const now = new Date();
+            const today = `${now.getFullYear()}/${now.getMonth()+1}/${now.getDate()}`;
+
+            const yesterdayDate = new Date(now);
+            yesterdayDate.setDate(now.getDate() - 1);
+            const yesterday = `${yesterdayDate.getFullYear()}/${yesterdayDate.getMonth()+1}/${yesterdayDate.getDate()}`;
+
+            const currentMonth = `${now.getFullYear()}/${now.getMonth()+1}`;
+
+            records.forEach(r => {
+                const amount = parseFloat(r.amount);
+                totalIncome += amount;
+
+                const datePart = r.date.split(' ')[0];
+
+                if (datePart === today) todayIncome += amount;
+                if (datePart === yesterday) yesterdayIncome += amount;
+                if (datePart.startsWith(currentMonth)) monthIncome += amount;
+            });
+
+            panel.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-title">🌞 今日收入</div>
+                    <div class="stat-value">¥ ${todayIncome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">🌙 昨日收入</div>
+                    <div class="stat-value">¥ ${yesterdayIncome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">📅 本月收入</div>
+                    <div class="stat-value">¥ ${monthIncome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-title">💰 总收入</div>
+                    <div class="stat-value">¥ ${totalIncome.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                </div>
+            `;
+        }
+
+        function updateDailyTotals(records) {
+            const dailyDiv = document.getElementById('dailyTotals');
+            const dailyTotals = {};
+
+            records.forEach(r => {
+                const date = r.date.split(' ')[0];
+                if (!dailyTotals[date]) dailyTotals[date] = 0;
+                dailyTotals[date] += parseFloat(r.amount);
+            });
+
+            let html = '<h3>📅 每日收益统计</h3>';
+
+            Object.keys(dailyTotals)
+                .sort((a,b) => new Date(b) - new Date(a))
+                .forEach(date => {
+                    html += `
+                        <div class="person-total">
+                            <span>${date}</span>
+                            <span style="color:#27ae60;font-weight:bold;">
+                                ¥ ${dailyTotals[date].toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+                            </span>
+                        </div>
+                    `;
+                });
+
+            dailyDiv.innerHTML = html;
+        }
+
 
         function exportCSV() {
             if (cloudRecords.length === 0) { alert('没有记录可导出！'); return; }
